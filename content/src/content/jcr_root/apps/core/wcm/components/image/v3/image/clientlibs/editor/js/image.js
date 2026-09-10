@@ -66,6 +66,8 @@
     var smartCropRadio = ".cmp-image__editor-dynamicmedia-presettype input[name='./dmPresetType'][value='smartCrop']";
     var remoteFileReference;
     var dataSeededValueAttr = "data-seeded-value";
+    var vanityIdProperty;
+    var $currentVanityIdDialog;
 
     var CT_SITES_41279 = "CT_SITES-41279";
     /*
@@ -139,6 +141,7 @@
         $dialogContent = $dialog.find(dialogContentSelector);
         var dialogContent  = $dialogContent.length > 0 ? $dialogContent[0] : undefined;
         if (dialogContent) {
+            $currentVanityIdDialog = $dialog;
             isDecorative = dialogContent.querySelector('coral-checkbox[name="./isDecorative"]');
 
             if ($(pageAltCheckboxSelector).length === 1) {
@@ -163,6 +166,11 @@
                 smartCropRenditionsDropDown = $dynamicMediaGroup.find(smartCropRenditionDropDownSelector).get(0);
             }
 
+            var $vanityIdConfig = $dialogContent.find(".cmp-image__editor-vanity-id-config");
+            vanityIdProperty = $vanityIdConfig.length ? $vanityIdConfig.attr("data-vanity-id-property") : "";
+            console.log("[vanityId] dialog-loaded: config element found=" + ($vanityIdConfig.length === 1) +
+                ", vanityIdProperty='" + vanityIdProperty + "'");
+
             imageFromPageImage = dialogContent.querySelector("coral-checkbox[name='./imageFromPageImage']");
 
             altFromPageTuple = new CheckboxTextfieldTuple(dialogContent, altFromPageCheckboxSelector, altInputSelector);
@@ -178,6 +186,11 @@
                         isPolarisEnabled = true;
                         remoteFileReference = $cqFileUpload.find("input[name='./fileReference']").val();
                     }
+                }
+                if (vanityIdProperty) {
+                    patchAssetSelectorForVanityId();
+                } else {
+                    console.log("[vanityId] no vanityIdProperty configured for this dialog");
                 }
 
                 retrieveInstanceInfo(imagePath);
@@ -537,6 +550,103 @@
 
     function isRemoteFileReference(fileReference) {
         return typeof fileReference === "string" && fileReference.startsWith("/urn:aaid:aem");
+    }
+
+    /**
+     * Reads the configured vanity-id metadata property off a selected-asset object, as returned by
+     * the Asset Selector library's handleSelection(assets) callback (see patchAssetSelectorForVanityId).
+     */
+    function findDescription(candidate, propertyName) {
+        if (!candidate || typeof candidate !== "object") {
+            return undefined;
+        }
+        if (typeof candidate[propertyName] === "string") {
+            return candidate[propertyName];
+        }
+        var embedded = candidate._embedded && candidate._embedded["http://ns.adobe.com/adobecloud/rel/metadata/embedded"];
+        if (embedded && typeof embedded[propertyName] === "string") {
+            return embedded[propertyName];
+        }
+        return undefined;
+    }
+
+    /**
+     * AEM's own file-upload widget owns the call into window.PureJSSelectors and its
+     * handleSelection callback, so this dialog's code never sees the selected asset's full
+     * metadata (only the resulting fileReference). To reach the configured vanity-id property, we
+     * wrap every method on the shared PureJSSelectors object once: whichever one AEM calls with a
+     * props object containing handleSelection gets its callback wrapped too, letting us read the
+     * same assets array AEM's widget receives before handing control back to the original callback.
+     *
+     * The wrapping itself only needs to happen once per page (PureJSSelectors is a shared global),
+     * but which dialog/property is active can change on every dialog-loaded event if multiple Image
+     * components are opened without a page reload. So the wrapped handleSelection below reads
+     * vanityIdProperty and $currentVanityIdDialog live, at selection time, instead of closing over
+     * whatever was current when the wrap was first installed - otherwise a later dialog's asset
+     * selection could silently write into an earlier, already-closed (and possibly detached) dialog.
+     *
+     * When a vanity id is found, this overwrites the saved fileReference itself with the
+     * urn:avid:... form (instead of leaving the real urn:aaid:... asset id untouched). That also
+     * feeds the vanity id into preview-token generation and the smart-crop metadata lookup -
+     * verify both still work before relying on this for a given Dynamic Media instance.
+     */
+    function patchAssetSelectorForVanityId() {
+        var api = window.PureJSSelectors;
+        if (!api) {
+            console.log("[vanityId] PATCH SKIPPED - window.PureJSSelectors not present yet");
+            return;
+        }
+        if (api.__vanityIdPatched) {
+            console.log("[vanityId] patch already installed; wrapped handleSelection will use the " +
+                "current vanityIdProperty ('" + vanityIdProperty + "') and dialog live, not a stale one");
+            return;
+        }
+        api.__vanityIdPatched = true;
+        console.log("[vanityId] PATCH INSTALLING (one-time, page-wide)");
+        Object.keys(api).forEach(function(key) {
+            var original = api[key];
+            if (typeof original !== "function") {
+                return;
+            }
+            api[key] = function() {
+                Array.prototype.forEach.call(arguments, function(arg) {
+                    if (arg && typeof arg.handleSelection === "function") {
+                        console.log("[vanityId] intercepted handleSelection on PureJSSelectors." + key);
+                        var originalHandleSelection = arg.handleSelection;
+                        arg.handleSelection = function(assets) {
+                            var result = originalHandleSelection.apply(this, arguments);
+                            var currentProperty = vanityIdProperty;
+                            var $dialog = $currentVanityIdDialog;
+                            if (!currentProperty || !$dialog || !$dialog.length) {
+                                console.log("[vanityId] asset selected but no active vanity-id dialog/property " +
+                                    "(property='" + currentProperty + "') - leaving fileReference as aaid");
+                                return result;
+                            }
+                            var vanityId = (assets && assets.length && findDescription(assets[0], currentProperty)) || "";
+                            var assetName = assets && assets.length && (assets[0]["repo:name"] || assets[0].name);
+                            console.log("[vanityId] asset selected: property='" + currentProperty + "', vanityId='" +
+                                vanityId + "', assetName='" + assetName + "'" +
+                                (vanityId && assetName ? " -> rewriting fileReference to avid" : " -> leaving fileReference as aaid"));
+                            if (vanityId && assetName) {
+                                // defer past whatever DOM writes the original handler just triggered
+                                setTimeout(function() {
+                                    var $fileReferenceInput = $dialog.find("input[name='./fileReference']");
+                                    if (!$fileReferenceInput.length || !$.contains(document, $dialog.get(0))) {
+                                        console.log("[vanityId] target dialog is no longer in the document - " +
+                                            "skipping fileReference rewrite (would have been a no-op)");
+                                        return;
+                                    }
+                                    $fileReferenceInput.val("/urn:avid:aem:" + vanityId + "/" + assetName);
+                                    console.log("[vanityId] fileReference rewritten to '/urn:avid:aem:" + vanityId + "/" + assetName + "'");
+                                }, 0);
+                            }
+                            return result;
+                        };
+                    }
+                });
+                return original.apply(this, arguments);
+            };
+        });
     }
 
     function hideSmartCropRenditionField() {

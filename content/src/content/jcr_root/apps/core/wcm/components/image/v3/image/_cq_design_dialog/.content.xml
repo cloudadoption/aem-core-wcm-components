@@ -63,6 +63,28 @@
                                                 sling:resourceType="core/wcm/components/rendercondition/isNGDMEnabled"/>
                                         </granite:rendercondition>
                                     </enableDmFeatures>
+                                    <enableVanityId
+                                        jcr:primaryType="nt:unstructured"
+                                        sling:resourceType="granite/ui/components/coral/foundation/form/checkbox"
+                                        fieldDescription="When checked, and a Vanity ID Metadata Property is set below, Dynamic Media images use a vanity asset id (read from the named metadata property on the selected asset) instead of the real asset id in the delivery URL."
+                                        name="./enableVanityId"
+                                        text="Enable Vanity Asset ID"
+                                        uncheckedValue="false"
+                                        value="{Boolean}true">
+                                        <granite:rendercondition
+                                            jcr:primaryType="nt:unstructured"
+                                            sling:resourceType="core/wcm/components/rendercondition/isNGDMEnabled"/>
+                                    </enableVanityId>
+                                    <vanityIdMetadataProperty
+                                        jcr:primaryType="nt:unstructured"
+                                        sling:resourceType="granite/ui/components/coral/foundation/form/textfield"
+                                        fieldDescription="Name of the asset metadata property to read the vanity asset id from (e.g. dc:description). Only used when Enable Vanity Asset ID is checked."
+                                        fieldLabel="Vanity ID Metadata Property"
+                                        name="./vanityIdMetadataProperty">
+                                        <granite:rendercondition
+                                            jcr:primaryType="nt:unstructured"
+                                            sling:resourceType="core/wcm/components/rendercondition/isNGDMEnabled"/>
+                                    </vanityIdMetadataProperty>
                                     <enableAssetDelivery
                                         jcr:primaryType="nt:unstructured"
                                         sling:resourceType="granite/ui/components/coral/foundation/form/checkbox"
