@@ -114,6 +114,15 @@
                                                 text="Don’t provide an alternative text"
                                                 uncheckedValue="false"
                                                 value="{Boolean}true"/>
+                                            <vanityIdConfig
+                                                granite:hide="${!cqDesign.enableVanityId}"
+                                                jcr:primaryType="nt:unstructured"
+                                                sling:resourceType="granite/ui/components/coral/foundation/container"
+                                                granite:class="cmp-image__editor-vanity-id-config">
+                                                <granite:data
+                                                    jcr:primaryType="nt:unstructured"
+                                                    vanity-id-property="${cqDesign.vanityIdMetadataProperty}"/>
+                                            </vanityIdConfig>
                                             <dynamicmediaGroup
                                                 granite:hide="${!cqDesign.enableDmFeatures}"
                                                 jcr:primaryType="nt:unstructured"

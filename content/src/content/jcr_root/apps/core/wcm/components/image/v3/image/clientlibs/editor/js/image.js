@@ -66,6 +66,9 @@
     var smartCropRadio = ".cmp-image__editor-dynamicmedia-presettype input[name='./dmPresetType'][value='smartCrop']";
     var remoteFileReference;
     var dataSeededValueAttr = "data-seeded-value";
+    var vanityIdProperty;
+    var vanityIdConfigSelector = ".cmp-image__editor-vanity-id-config";
+    var vanityIdResolverServletPath = "/bin/wcm/core/components/image/v3/vanityid";
 
     var CT_SITES_41279 = "CT_SITES-41279";
     /*
@@ -141,6 +144,9 @@
         if (dialogContent) {
             isDecorative = dialogContent.querySelector('coral-checkbox[name="./isDecorative"]');
 
+            var vanityIdConfigEl = dialogContent.querySelector(vanityIdConfigSelector);
+            vanityIdProperty = vanityIdConfigEl ? vanityIdConfigEl.getAttribute("data-vanity-id-property") : undefined;
+
             if ($(pageAltCheckboxSelector).length === 1) {
                 // when the tuple is used in the page dialog to define the featured image
                 altTuple = new CheckboxTextfieldTuple(dialogContent, pageAltCheckboxSelector, pageAltInputSelector);
@@ -182,6 +188,7 @@
 
                 retrieveInstanceInfo(imagePath);
                 $cqFileUpload.on("assetselected", function(e) {
+                    var $selectedFileUpload = $(this);
                     fileReference = e.path;
                     // if it is a remote asset
                     remoteFileReference = $cqFileUpload.find("input[name='./fileReference']").val();
@@ -189,6 +196,7 @@
                         fileReference = remoteFileReference;
                         smartCropRenditionFromJcr = "NONE"; // for newly selected asset we clear the smartcrop selection dropdown
                     }
+                    resolveVanityAssetId(fileReference, $selectedFileUpload);
                     retrieveDAMInfo(fileReference).then(
                         function() {
                             if (isDecorative) {
@@ -537,6 +545,41 @@
 
     function isRemoteFileReference(fileReference) {
         return typeof fileReference === "string" && fileReference.startsWith("/urn:aaid:aem");
+    }
+
+    /**
+     * If a vanity id metadata property is configured for this dialog, asks the author-only resolver servlet to
+     * look it up for the selected asset, and rewrites the fileReference field to the urn:avid:aem form on success.
+     * Any failure (servlet error, empty response, property not set on the asset) leaves fileReference untouched,
+     * so the real urn:aaid:aem reference is what gets saved - same graceful degradation as every other failure
+     * mode in this flow.
+     *
+     * @param {String} fileReference the real fileReference written by the picker (/urn:aaid:aem:<id>/<name>)
+     * @param {jQuery} $fileUpload the specific file-upload widget the asset was selected in, captured at event
+     *                 time rather than read from the shared module-level variable, so a slow response can't land
+     *                 on a different (or since-closed) dialog's field
+     */
+    function resolveVanityAssetId(fileReference, $fileUpload) {
+        if (!vanityIdProperty || !isRemoteFileReference(fileReference)) {
+            return;
+        }
+        var pathParts = fileReference.split("/");
+        var assetId = pathParts[1];
+        var assetName = pathParts.slice(2).join("/");
+        if (!assetId || !assetName) {
+            return;
+        }
+        $.ajax({
+            url: vanityIdResolverServletPath,
+            data: {
+                assetId: assetId,
+                property: vanityIdProperty
+            }
+        }).done(function(data) {
+            if (data && data.vanityId && $.contains(document, $fileUpload.get(0))) {
+                $fileUpload.find("input[name='./fileReference']").val("/urn:avid:aem:" + data.vanityId + "/" + assetName);
+            }
+        });
     }
 
     function hideSmartCropRenditionField() {
