@@ -147,6 +147,17 @@
             var vanityIdConfigEl = dialogContent.querySelector(vanityIdConfigSelector);
             vanityIdProperty = vanityIdConfigEl ? vanityIdConfigEl.getAttribute("data-vanity-id-property") : undefined;
 
+            // Design dialog only: keep the property textfield disabled until "Enable Vanity Asset ID" is checked.
+            var $enableVanityIdCheckbox = $dialogContent.find('coral-checkbox[name="./enableVanityId"]');
+            var $vanityIdPropertyField = $dialogContent.find(".cmp-image__editor-vanity-id-property");
+            if ($enableVanityIdCheckbox.length && $vanityIdPropertyField.length) {
+                var syncVanityIdPropertyDisabled = function() {
+                    $vanityIdPropertyField.adaptTo("foundation-field").setDisabled(!$enableVanityIdCheckbox.prop("checked"));
+                };
+                syncVanityIdPropertyDisabled();
+                $enableVanityIdCheckbox.on("change", syncVanityIdPropertyDisabled);
+            }
+
             if ($(pageAltCheckboxSelector).length === 1) {
                 // when the tuple is used in the page dialog to define the featured image
                 altTuple = new CheckboxTextfieldTuple(dialogContent, pageAltCheckboxSelector, pageAltInputSelector);
@@ -548,16 +559,11 @@
     }
 
     /**
-     * If a vanity id metadata property is configured for this dialog, asks the author-only resolver servlet to
-     * look it up for the selected asset, and rewrites the fileReference field to the urn:avid:aem form on success.
-     * Any failure (servlet error, empty response, property not set on the asset) leaves fileReference untouched,
-     * so the real urn:aaid:aem reference is what gets saved - same graceful degradation as every other failure
-     * mode in this flow.
+     * Resolves the configured vanity id property for the selected asset and rewrites fileReference on success.
+     * Any failure leaves fileReference untouched, so the real urn:aaid:aem reference is what gets saved.
      *
-     * @param {String} fileReference the real fileReference written by the picker (/urn:aaid:aem:<id>/<name>)
-     * @param {jQuery} $fileUpload the specific file-upload widget the asset was selected in, captured at event
-     *                 time rather than read from the shared module-level variable, so a slow response can't land
-     *                 on a different (or since-closed) dialog's field
+     * @param {String} fileReference the real fileReference written by the picker
+     * @param {jQuery} $fileUpload the widget the asset was selected in, captured at event time
      */
     function resolveVanityAssetId(fileReference, $fileUpload) {
         if (!vanityIdProperty || !isRemoteFileReference(fileReference)) {

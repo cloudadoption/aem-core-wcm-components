@@ -46,9 +46,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Acquires and caches an IMS OAuth Server-to-Server access token, used to make authenticated calls to the
- * Dynamic Media metadata API for vanity asset id resolution. Never throws - callers get {@link Optional#empty()}
- * on any failure, so a token/network problem degrades to "no vanity id" rather than breaking the caller.
+ * Acquires and caches an IMS OAuth Server-to-Server access token for authenticated Dynamic Media calls.
+ * Never throws - returns {@link Optional#empty()} on any failure so callers degrade gracefully.
  */
 @Component(service = DMOAuthService.class)
 @Designate(ocd = DMOAuthConfig.class)

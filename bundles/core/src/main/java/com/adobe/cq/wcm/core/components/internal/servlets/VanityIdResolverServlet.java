@@ -47,11 +47,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Author-only endpoint that resolves a vanity asset id: given a real NGDM asset id and a metadata property name,
- * it makes an authenticated call to the Dynamic Media metadata API and returns the property's value, if present.
- * Every failure mode (no token, network error, property absent, malformed response) returns an empty response
- * rather than an error - callers treat "no value" as the normal/expected outcome of a cache miss or a property
- * that simply isn't set on this asset.
+ * Author-only endpoint that resolves a vanity asset id via an authenticated Dynamic Media metadata call.
+ * Every failure mode returns an empty response rather than an error - "no value" is the normal outcome.
  */
 @Component(
     service = Servlet.class,
@@ -155,7 +152,7 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
                 }
                 return vanityId;
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             LOGGER.warn("Dynamic Media metadata request for " + assetId + " failed", e);
             return Optional.empty();
         } finally {
