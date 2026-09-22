@@ -121,7 +121,7 @@
                                                 granite:class="cmp-image__editor-vanity-id-config">
                                                 <granite:data
                                                     jcr:primaryType="nt:unstructured"
-                                                    vanity-id-property="${cqDesign.vanityIdMetadataProperty}"/>
+                                                    vanity-id-property="${cqDesign.enableVanityId ? cqDesign.vanityIdMetadataProperty : ''}"/>
                                             </vanityIdConfig>
                                             <dynamicmediaGroup
                                                 granite:hide="${!cqDesign.enableDmFeatures}"
