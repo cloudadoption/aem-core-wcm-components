@@ -35,9 +35,13 @@ import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.SlingHttpServletResponse;
 import org.apache.sling.api.servlets.SlingSafeMethodsServlet;
 import org.jetbrains.annotations.NotNull;
+import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Deactivate;
+import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicyOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,13 +79,31 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
     @Reference
     private DMOAuthService dmOAuthService;
 
-    @Reference(cardinality = ReferenceCardinality.OPTIONAL)
+    @Reference(cardinality = ReferenceCardinality.OPTIONAL, policyOption = ReferencePolicyOption.GREEDY)
     private volatile NextGenDynamicMediaConfig nextGenDynamicMediaConfig;
 
     @Reference
     private HttpClientBuilderFactory httpClientBuilderFactory;
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    private volatile CloseableHttpClient httpClient;
+
+    @Activate
+    @Modified
+    protected void activate() {
+        CloseableHttpClient previousClient = this.httpClient;
+        this.httpClient = buildHttpClient();
+        if (previousClient != null) {
+            closeQuietly(previousClient);
+        }
+    }
+
+    @Deactivate
+    protected void deactivate() {
+        closeQuietly(this.httpClient);
+        this.httpClient = null;
+    }
 
     @Override
     protected void doGet(@NotNull SlingHttpServletRequest request, @NotNull SlingHttpServletResponse response)
@@ -119,15 +141,13 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
             return Optional.empty();
         }
 
-        String url = "https://" + repositoryId + "/adobe/assets/" + assetId + "/metadata";
-        RequestConfig requestConfig = RequestConfig.custom()
-            .setConnectTimeout(CONNECTION_TIMEOUT)
-            .setSocketTimeout(SOCKET_TIMEOUT_MILLIS)
-            .build();
-        CloseableHttpClient httpClient = httpClientBuilderFactory != null
-            ? httpClientBuilderFactory.newBuilder().setDefaultRequestConfig(requestConfig).build()
-            : HttpClients.custom().setDefaultRequestConfig(requestConfig).build();
+        CloseableHttpClient httpClient = this.httpClient;
+        if (httpClient == null) {
+            LOGGER.warn("Dynamic Media metadata HTTP client is not available (component deactivated)");
+            return Optional.empty();
+        }
 
+        String url = "https://" + repositoryId + "/adobe/assets/" + assetId + "/metadata";
         LOGGER.info("Fetching Dynamic Media metadata for asset {} to resolve vanity id property '{}' ({})",
             assetId, property, url);
         try {
@@ -155,8 +175,6 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
         } catch (IOException | IllegalArgumentException e) {
             LOGGER.warn("Dynamic Media metadata request for " + assetId + " failed", e);
             return Optional.empty();
-        } finally {
-            closeQuietly(httpClient);
         }
     }
 
@@ -188,10 +206,24 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
     }
 
     private void closeQuietly(CloseableHttpClient client) {
+        if (client == null) {
+            return;
+        }
         try {
             client.close();
         } catch (IOException e) {
             LOGGER.warn("Failed to close Dynamic Media metadata HTTP client", e);
         }
+    }
+
+    private CloseableHttpClient buildHttpClient() {
+        RequestConfig requestConfig = RequestConfig.custom()
+            .setConnectTimeout(CONNECTION_TIMEOUT)
+            .setSocketTimeout(SOCKET_TIMEOUT_MILLIS)
+            .build();
+        if (httpClientBuilderFactory != null) {
+            return httpClientBuilderFactory.newBuilder().setDefaultRequestConfig(requestConfig).build();
+        }
+        return HttpClients.custom().setDefaultRequestConfig(requestConfig).build();
     }
 }

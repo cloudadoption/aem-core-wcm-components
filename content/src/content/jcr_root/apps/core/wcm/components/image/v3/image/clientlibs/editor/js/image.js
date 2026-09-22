@@ -69,6 +69,7 @@
     var vanityIdProperty;
     var vanityIdConfigSelector = ".cmp-image__editor-vanity-id-config";
     var vanityIdResolverServletPath = "/bin/wcm/core/components/image/v3/vanityid";
+    var vanityIdRequestTokenKey = "vanityIdRequestToken";
 
     var CT_SITES_41279 = "CT_SITES-41279";
     /*
@@ -230,6 +231,8 @@
                     captionTuple.reset();
                     captionTuple.hideCheckbox(true);
                     altTuple.hideCheckbox(true);
+                    // Invalidate any in-flight vanity id lookup so it can't resurrect fileReference after clearing.
+                    $cqFileUpload.data(vanityIdRequestTokenKey, ($cqFileUpload.data(vanityIdRequestTokenKey) || 0) + 1);
                 });
                 $cqFileUpload.on("coral-fileupload:fileadded", function() {
                     if (isDecorative) {
@@ -575,6 +578,8 @@
         if (!assetId || !assetName) {
             return;
         }
+        var requestToken = ($fileUpload.data(vanityIdRequestTokenKey) || 0) + 1;
+        $fileUpload.data(vanityIdRequestTokenKey, requestToken);
         $.ajax({
             url: vanityIdResolverServletPath,
             data: {
@@ -582,7 +587,8 @@
                 property: vanityIdProperty
             }
         }).done(function(data) {
-            if (data && data.vanityId && $.contains(document, $fileUpload.get(0))) {
+            var isCurrentSelection = $fileUpload.data(vanityIdRequestTokenKey) === requestToken;
+            if (data && data.vanityId && isCurrentSelection && $.contains(document, $fileUpload.get(0))) {
                 $fileUpload.find("input[name='./fileReference']").val("/urn:avid:aem:" + data.vanityId + "/" + assetName);
             }
         });
