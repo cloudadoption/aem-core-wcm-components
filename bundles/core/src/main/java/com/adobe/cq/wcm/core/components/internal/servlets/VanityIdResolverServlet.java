@@ -148,7 +148,7 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
         }
 
         String url = "https://" + repositoryId + "/adobe/assets/" + assetId + "/metadata";
-        LOGGER.info("Fetching Dynamic Media metadata for asset {} to resolve vanity id property '{}' ({})",
+        LOGGER.debug("Fetching Dynamic Media metadata for asset {} to resolve vanity id property '{}' ({})",
             assetId, property, url);
         try {
             HttpGet get = new HttpGet(url);
@@ -166,9 +166,9 @@ public class VanityIdResolverServlet extends SlingSafeMethodsServlet {
                 LOGGER.debug("Dynamic Media metadata response for asset {}: {}", assetId, body);
                 Optional<String> vanityId = extractProperty(mapper.readTree(body), property);
                 if (vanityId.isPresent()) {
-                    LOGGER.info("Resolved vanity id property '{}' for asset {}: '{}'", property, assetId, vanityId.get());
+                    LOGGER.debug("Resolved vanity id property '{}' for asset {}: '{}'", property, assetId, vanityId.get());
                 } else {
-                    LOGGER.info("Property '{}' not present (or empty) in Dynamic Media metadata for asset {}", property, assetId);
+                    LOGGER.debug("Property '{}' not present (or empty) in Dynamic Media metadata for asset {}", property, assetId);
                 }
                 return vanityId;
             }
