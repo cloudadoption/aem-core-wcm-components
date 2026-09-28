@@ -557,19 +557,38 @@
         toggleAlternativeFields(fromPageCheckbox, isDecorativeCheckbox);
     }
 
+    /**
+     * Checks whether the given fileReference points to a remote AEM asset, either by asset id
+     * ({@code /urn:aaid:aem:<assetID>/seoname.format}) or by vanity id ({@code /urn:avid:aem:<vanityID>/seoname.format}).
+     *
+     * @param {String} fileReference the fileReference to check
+     * @returns {Boolean} true if the fileReference is a remote asset reference
+     */
     function isRemoteFileReference(fileReference) {
+        return isAssetIdFileReference(fileReference) ||
+            (typeof fileReference === "string" && fileReference.startsWith("/urn:avid:aem"));
+    }
+
+    /**
+     * Checks whether the given fileReference is a remote asset reference by asset id ({@code /urn:aaid:aem:...}).
+     *
+     * @param {String} fileReference the fileReference to check
+     * @returns {Boolean} true if the fileReference is a urn:aaid:aem reference
+     */
+    function isAssetIdFileReference(fileReference) {
         return typeof fileReference === "string" && fileReference.startsWith("/urn:aaid:aem");
     }
 
     /**
      * Resolves the configured vanity id property for the selected asset and rewrites fileReference on success.
      * Any failure leaves fileReference untouched, so the real urn:aaid:aem reference is what gets saved.
+     * References that already use a vanity id (urn:avid:aem) are left untouched.
      *
      * @param {String} fileReference the real fileReference written by the picker
      * @param {jQuery} $fileUpload the widget the asset was selected in, captured at event time
      */
     function resolveVanityAssetId(fileReference, $fileUpload) {
-        if (!vanityIdProperty || !isRemoteFileReference(fileReference)) {
+        if (!vanityIdProperty || !isAssetIdFileReference(fileReference)) {
             return;
         }
         var pathParts = fileReference.split("/");
@@ -600,7 +619,7 @@
     }
 
     /**
-     * Remote AEM assets (urn:aaid:aem): always show the Image Modifiers field in the dialog.
+     * Remote AEM assets (urn:aaid:aem or urn:avid:aem): always show the Image Modifiers field in the dialog.
      */
     function showImageModifiersForRemoteAsset() {
         if (imageFromPageImage && !imageFromPageImage.checked) {
@@ -611,7 +630,8 @@
 
     function retrieveDAMInfo(fileReference) {
         if (isRemoteFileReference(fileReference) && isPolarisEnabled && areDMFeaturesEnabled) {
-            // fileReference is /urn:aaid:aem:<assetID>/seoname.format; strip the SEO suffix to get the asset UUID.
+            // fileReference is /urn:aaid:aem:<assetID>/seoname.format or /urn:avid:aem:<vanityID>/seoname.format;
+            // strip the SEO suffix to get the asset URN (the metadata API accepts both asset and vanity ids).
             var polarisMetadataPath = fileReference.substring(0, fileReference.lastIndexOf("/"));
             return new Promise(function(resolve) {
                 var imageUrl = "https://" + polarisRepositoryId + "/adobe/assets" + polarisMetadataPath + "/metadata";
@@ -988,6 +1008,12 @@
         imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.isRemoteFileReference = isRemoteFileReference;
         imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.processPolarisSmartCropMetadataResponse = processPolarisSmartCropMetadataResponse;
         imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.retrieveDAMInfo = retrieveDAMInfo;
+        imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.resolveVanityAssetId = resolveVanityAssetId;
+        imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.setVanityIdTestState = function(state) {
+            if (state.vanityIdProperty !== undefined) {
+                vanityIdProperty = state.vanityIdProperty;
+            }
+        };
         imageV3EditorTestApiHost.__IMAGE_V3_EDITOR_TEST_API.setRetrieveDAMTestState = function(state) {
             if (state.isPolarisEnabled !== undefined) {
                 isPolarisEnabled = state.isPolarisEnabled;

@@ -41,6 +41,10 @@ device) is disabled.
 6. `./enableAssetDelivery` - If `true`, assets will be delivered through the Asset Delivery system (based on Dynamic Media for AEMaaCS). This will also enable optimizations based on
    [content negotiation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation). Currently, this optimization is available only for webp.
 7`./sizes` - defines the sizes attribute for responsive image loading.
+8. `./enableVanityId` - if `true` (and Dynamic Media with OpenAPI is enabled), remote assets selected in the edit dialog are referenced by
+   their vanity asset id instead of their real asset id (see [Vanity Asset IDs](#vanity-asset-ids)).
+9. `./vanityIdMetadataProperty` - name of the asset metadata property (e.g. `dc:description`) holding the vanity asset id. Only used when
+   `./enableVanityId` is `true`.
 
 ### Edit Dialog Properties
 The following properties are written to JCR for this Image component and are expected to be available as `Resource` properties:
@@ -61,6 +65,31 @@ otherwise a caption will be rendered
 1. `./imageFromPageImage` - if `true`, the image is inherited from the featured image of either the linked page if `./linkURL` is set or the current page.
 1. `./altValueFromPageImage` - if `true` and if `./imageFromPageImage` is `true`, the HTML `alt` attribute is inherited from the featured image of either the linked page if `./linkURL` is set or the current page.
 1. `./disableLazyLoading` - if `true` the lazy loading of the image is disabled regardless of the lazy loading setting in the design policy.
+
+### Vanity Asset IDs
+When Dynamic Media with OpenAPI is enabled and `./enableVanityId` / `./vanityIdMetadataProperty` are set in the component policy, selecting a
+remote asset in the edit dialog triggers a lookup of the configured metadata property. If a value is found, `./fileReference` is rewritten
+from `/urn:aaid:aem:<assetId>/<name>` to `/urn:avid:aem:<vanityId>/<name>`; otherwise the real asset id reference is kept.
+
+Prerequisites:
+
+1. The Cloud Manager environment variable `ASSET_DELIVERY_VANITY_ID` must be set to the same metadata property as `./vanityIdMetadataProperty`,
+   so that Dynamic Media delivery resolves the vanity id. See
+   [Vanity URLs for Dynamic Media with OpenAPI](https://experienceleague.adobe.com/en/docs/experience-manager-cloud-service/content/assets/dynamicmedia/dynamic-media-open-apis/vanity-urls).
+2. An OSGi configuration for the **Core Components Dynamic Media OAuth Service**
+   (`com.adobe.cq.wcm.core.components.internal.services.DMOAuthService`), using an IMS OAuth Server-to-Server credential from the Adobe
+   Developer Console:
+    1. `clientId` - IMS OAuth Server-to-Server client ID (API key).
+    2. `clientSecret` - IMS OAuth Server-to-Server client secret.
+    3. `scope` - OAuth scope value, copied exactly from the Developer Console credential (comma-separated).
+    4. `tokenEndpoint` - IMS OAuth token endpoint. Default value is `https://ims-na1.adobelogin.com/ims/token/v3`.
+    5. `connectionTimeout` - time (ms) to establish the connection with the IMS token endpoint. Default value is `2000`.
+    6. `socketTimeout` - time (ms) waiting for data after establishing the connection. Default value is `10000`.
+
+The lookup is performed by the author-only `com.adobe.cq.wcm.core.components.internal.servlets.VanityIdResolverServlet`, registered at
+`/bin/wcm/core/components/image/v3/vanityid`. It accepts the `assetId` (e.g. `urn:aaid:aem:<uuid>`) and `property` request parameters, calls the
+authenticated Dynamic Media metadata API (`https://<repositoryId>/adobe/assets/<assetId>/metadata`) and returns `{"vanityId": "<value>"}`
+when the property has a value, or an empty response otherwise.
 
 ## Extending from This Component
 1. In case you overwrite the image's HTL script, make sure the necessary attributes for the JavaScript loading script are contained in the markup at the right position (see section below).

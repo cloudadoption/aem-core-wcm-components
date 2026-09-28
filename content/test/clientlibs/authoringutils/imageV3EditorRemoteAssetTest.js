@@ -81,12 +81,14 @@ function imageV3EditorRemoteAssetCreateDynamicMediaDialogFixture() {
 function imageV3EditorRemoteAssetCreatePolarisMetadataXhrSpy() {
     const originalXhr = globalThis.XMLHttpRequest;
     let polarisMetadataRequested = false;
+    let polarisMetadataUrl = null;
     globalThis.XMLHttpRequest = function() {
         const xhr = new originalXhr();
         const originalOpen = xhr.open;
         xhr.open = function(method, url) {
             if (typeof url === "string" && url.indexOf("/adobe/assets") !== -1 && url.indexOf("/metadata") !== -1) {
                 polarisMetadataRequested = true;
+                polarisMetadataUrl = url;
             }
             return originalOpen.apply(xhr, arguments);
         };
@@ -96,10 +98,49 @@ function imageV3EditorRemoteAssetCreatePolarisMetadataXhrSpy() {
         wasPolarisMetadataRequested: function() {
             return polarisMetadataRequested;
         },
+        getPolarisMetadataUrl: function() {
+            return polarisMetadataUrl;
+        },
         restore: function() {
             globalThis.XMLHttpRequest = originalXhr;
         }
     };
+}
+
+/**
+ * Minimal stand-in for the {@code $fileUpload} jQuery wrapper used by {@code resolveVanityAssetId}
+ * ({@code data}, {@code find}, {@code get}), backed by a real DOM element holding the {@code ./fileReference} input.
+ */
+function imageV3EditorRemoteAssetCreateFileUploadStub(fileReference) {
+    const element = document.createElement("div");
+    const input = document.createElement("input");
+    input.setAttribute("name", "./fileReference");
+    input.value = fileReference;
+    element.appendChild(input);
+    document.body.appendChild(element);
+    const store = {};
+    const stub = {
+        data: function(key, value) {
+            if (value === undefined) {
+                return store[key];
+            }
+            store[key] = value;
+            return stub;
+        },
+        find: function(selector) {
+            return globalThis.jQuery(element).find(selector);
+        },
+        get: function() {
+            return element;
+        },
+        getFileReference: function() {
+            return input.value;
+        },
+        remove: function() {
+            element.remove();
+        }
+    };
+    return stub;
 }
 
 describe("Image v3 editor remote asset Dynamic Media", function() {
@@ -130,6 +171,10 @@ describe("Image v3 editor remote asset Dynamic Media", function() {
             expect(api.isRemoteFileReference("/urn:aaid:aem:abc-123/landscape.jpg")).toBe(true);
         });
 
+        it("returns true for a vanity /urn:avid:aem:<vanityID>/seoname.format reference", function() {
+            expect(api.isRemoteFileReference("/urn:avid:aem:VanityCheck/check.jpeg")).toBe(true);
+        });
+
         it("returns false for DAM paths and empty values", function() {
             expect(api.isRemoteFileReference("/content/dam/sample.jpg")).toBe(false);
             expect(api.isRemoteFileReference("")).toBe(false);
@@ -140,6 +185,11 @@ describe("Image v3 editor remote asset Dynamic Media", function() {
         it("returns false when urn:aaid:aem is not at the path root", function() {
             expect(api.isRemoteFileReference("urn:aaid:aem:abc-123/landscape.jpg")).toBe(false);
             expect(api.isRemoteFileReference("/content/dam/urn:aaid:aem/asset")).toBe(false);
+        });
+
+        it("returns false when urn:avid:aem is not at the path root", function() {
+            expect(api.isRemoteFileReference("urn:avid:aem:VanityCheck/check.jpeg")).toBe(false);
+            expect(api.isRemoteFileReference("/content/dam/urn:avid:aem/asset")).toBe(false);
         });
     });
 
@@ -274,6 +324,131 @@ describe("Image v3 editor remote asset Dynamic Media", function() {
                 xhrSpy.restore();
                 done();
             });
+        });
+
+        it("requests Polaris metadata by vanity id for a urn:avid:aem remote asset", function(done) {
+            const xhrSpy = imageV3EditorRemoteAssetCreatePolarisMetadataXhrSpy();
+            api.setRetrieveDAMTestState({
+                isPolarisEnabled: true,
+                areDMFeaturesEnabled: true,
+                polarisRepositoryId: "repo.test"
+            });
+
+            api.retrieveDAMInfo("/urn:avid:aem:VanityCheck/check.jpeg").then(function() {
+                expect(xhrSpy.getPolarisMetadataUrl()).toBe("https://repo.test/adobe/assets/urn:avid:aem:VanityCheck/metadata");
+                xhrSpy.restore();
+                done();
+            });
+        });
+    });
+
+    describe("resolveVanityAssetId", function() {
+        const vanityResolverPath = "/bin/wcm/core/components/image/v3/vanityid";
+        let fileUpload;
+        let originalContains;
+
+        beforeEach(function() {
+            originalContains = globalThis.jQuery.contains;
+            globalThis.jQuery.contains = function(container, contained) {
+                return container !== contained && container.contains(contained);
+            };
+            api.setVanityIdTestState({ vanityIdProperty: "dc:description" });
+        });
+
+        afterEach(function() {
+            api.setVanityIdTestState({ vanityIdProperty: "" });
+            delete globalThis.jQuery._ajaxHandler;
+            if (originalContains === undefined) {
+                delete globalThis.jQuery.contains;
+            } else {
+                globalThis.jQuery.contains = originalContains;
+            }
+            fileUpload?.remove();
+            fileUpload = null;
+        });
+
+        it("rewrites fileReference to the vanity reference when a vanityId is returned", function(done) {
+            fileUpload = imageV3EditorRemoteAssetCreateFileUploadStub(remoteFileReference);
+            let ajaxOptions;
+            globalThis.jQuery._ajaxHandler = function(options, resolve) {
+                ajaxOptions = options;
+                resolve({ vanityId: "VanityCheck" });
+            };
+
+            api.resolveVanityAssetId(remoteFileReference, fileUpload);
+            setTimeout(function() {
+                expect(ajaxOptions.url).toBe(vanityResolverPath);
+                expect(ajaxOptions.data).toEqual({ assetId: "urn:aaid:aem:abc-123", property: "dc:description" });
+                expect(fileUpload.getFileReference()).toBe("/urn:avid:aem:VanityCheck/landscape.jpg");
+                done();
+            }, 10);
+        });
+
+        it("keeps the original fileReference when the response is empty", function(done) {
+            fileUpload = imageV3EditorRemoteAssetCreateFileUploadStub(remoteFileReference);
+            globalThis.jQuery._ajaxHandler = function(options, resolve) {
+                resolve("");
+            };
+
+            api.resolveVanityAssetId(remoteFileReference, fileUpload);
+            setTimeout(function() {
+                expect(fileUpload.getFileReference()).toBe(remoteFileReference);
+                done();
+            }, 10);
+        });
+
+        it("ignores a stale response when a newer selection was made", function(done) {
+            const secondReference = "/urn:aaid:aem:def-456/portrait.jpg";
+            fileUpload = imageV3EditorRemoteAssetCreateFileUploadStub(remoteFileReference);
+            const pending = [];
+            globalThis.jQuery._ajaxHandler = function(options, resolve) {
+                pending.push({ options: options, resolve: resolve });
+            };
+
+            api.resolveVanityAssetId(remoteFileReference, fileUpload);
+            fileUpload.find("input[name='./fileReference']").val(secondReference);
+            api.resolveVanityAssetId(secondReference, fileUpload);
+            setTimeout(function() {
+                expect(pending.length).toBe(2);
+                pending[1].resolve({ vanityId: "Fresh" });
+                pending[0].resolve({ vanityId: "Stale" });
+                expect(fileUpload.getFileReference()).toBe("/urn:avid:aem:Fresh/portrait.jpg");
+                done();
+            }, 10);
+        });
+
+        it("does not resolve references that already use a vanity id", function(done) {
+            const vanityReference = "/urn:avid:aem:VanityCheck/check.jpeg";
+            fileUpload = imageV3EditorRemoteAssetCreateFileUploadStub(vanityReference);
+            let ajaxCalled = false;
+            globalThis.jQuery._ajaxHandler = function(options, resolve) {
+                ajaxCalled = true;
+                resolve({ vanityId: "Other" });
+            };
+
+            api.resolveVanityAssetId(vanityReference, fileUpload);
+            setTimeout(function() {
+                expect(ajaxCalled).toBe(false);
+                expect(fileUpload.getFileReference()).toBe(vanityReference);
+                done();
+            }, 10);
+        });
+
+        it("does not resolve when no vanity id property is configured", function(done) {
+            api.setVanityIdTestState({ vanityIdProperty: "" });
+            fileUpload = imageV3EditorRemoteAssetCreateFileUploadStub(remoteFileReference);
+            let ajaxCalled = false;
+            globalThis.jQuery._ajaxHandler = function(options, resolve) {
+                ajaxCalled = true;
+                resolve({ vanityId: "VanityCheck" });
+            };
+
+            api.resolveVanityAssetId(remoteFileReference, fileUpload);
+            setTimeout(function() {
+                expect(ajaxCalled).toBe(false);
+                expect(fileUpload.getFileReference()).toBe(remoteFileReference);
+                done();
+            }, 10);
         });
     });
 });
